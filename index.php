@@ -4,24 +4,36 @@
  * 简单实现获取 Bing 背景的 API
  *
  * 请求参数:
- *    idx 日期, -1 表示明天的背景, 按各地区更新时间为准, 没有则返回今天的, 0 表示今天, 1表示昨天以此类推
- *    mkt 地区, 具体查看页面示例
+ *    idx 日期, 必须, -1 表示明天的背景, 按各地区更新时间为准, 没有则返回今天的, 0 表示今天, 1表示昨天以此类推
+ *    mkt 地区, 可选, 具体查看页面示例
+ *    n   天数, 可选, 从 idx 开始往前的天数
+ *    img 直接跳转图片地址, 使用此参数后 idx 参数可选
  * POST请求:
- *    all 参数非0则一次获取全部
+ *    idx 同上
+ *    mkt 同上
+ *    n   同上
+ *    all 参数非空则一次获取全部地区
  *
  * Copyright 2020, Moka @ xyuanmu@gmail.com
  */
 
-function bing($bingApi) {
-    $idx = @$_GET['idx'];
-    $mkt = @$_GET['mkt'];
-    $url = $bingApi.'&idx=' . $idx . '&mkt=' . $mkt;
+$bingApi = 'http://www.bing.com/HPImageArchive.aspx?format=js';
+
+function bing($url, $redirect = null) {
     $ch  = curl_init($url);
     curl_setopt($ch, CURLOPT_TIMEOUT, 6);
     curl_setopt($ch, CURLOPT_HTTPHEADER, array('X-FORWARDED-FOR:204.79.197.200', 'CLIENT-IP:204.79.197.200'));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     $cexecute = curl_exec($ch);
     curl_close($ch);
+    if ($redirect) {
+        $data = json_decode($cexecute, true);
+        $url = @$data['images'][0]['url'];
+        if ($url) {
+            header('Location: https://www.bing.com'.$url, true, 200);
+            exit;
+        }
+    }
     die($cexecute);
 }
 
@@ -56,28 +68,30 @@ function rollingCurl($urls){
     return $responses;
 }
 
-
 if ($_GET || $_POST) {
-    $bingApi = 'http://www.bing.com/HPImageArchive.aspx?format=js&n=1';
-    $idx = $mkt = $all = 0;
+    $idx = $mkt = $all = $redirect = 0;
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $idx = @$_POST['idx'];
         $mkt = @$_POST['mkt'];
-        $all = @$_POST['all'];
+        $num = @$_POST['n'] ?: 1;
+        $all = isset($_POST['all']);
     } else {
         $idx = @$_GET['idx'];
         $mkt = @$_GET['mkt'];
+        $num = @$_GET['n'] ?: 1;
+        $redirect = isset($_GET['img']);
     }
-    if ((!$all && !$mkt) || $idx == '') {
+    if (!$redirect && $idx === '') {
         http_response_code(403);
         die();
     }
+    $url = $bingApi.'&idx='.$idx.'&n='.$num;
     if ($all) {
         $urls = [];
-        $callback = array('code' => $mkt);
+        $callback = array('all' => 1);
         $mkts = array('zh-cn', 'en-us', 'ja-jp', 'en-gb', 'en-in', 'de-de', 'fr-fr', 'pt-br', 'en-ca', 'fr-ca', 'en-ww', 'en-au');
         foreach ($mkts as $mkt) {
-            $urls[$mkt] = $bingApi.'&idx=' . $idx . '&mkt=' . $mkt;
+            $urls[$mkt] = $url.'&mkt='.$mkt;
         }
         $data = rollingCurl($urls);
         foreach ($data as $mkt => $val) {
@@ -85,7 +99,7 @@ if ($_GET || $_POST) {
         }
         die(json_encode($callback));
     } else {
-        bing($bingApi);
+        bing($url.'&mkt='.$mkt, $redirect);
     }
 }
 else { ?>
@@ -97,8 +111,21 @@ else { ?>
 </head>
 <style>
 html, body {
+    color: #24292e;
     padding: 0;
     margin: 0;
+}
+a {
+    color: #078FD6;
+    text-decoration: none;
+}
+a:hover {
+    color: #da5899;
+}
+small {
+    display: block;
+    color: #999;
+    margin: 1em 0;
 }
 #main {
     width: 900px;
@@ -106,6 +133,7 @@ html, body {
     padding: 30px;
     margin: auto;
     text-align: center;
+    box-sizing: border-box;
 }
 h1 {
     padding: 9px;
@@ -190,10 +218,14 @@ h1 {
         <label for="idx-1">昨天</label>
         <input name="idx" type="radio" value="2" id="idx-2">
         <label for="idx-2">前天</label>
-        <small style="display:block;color:#999;margin:1em 0">获取壁纸的日期，Bing 中国一般每天 16:00 更新明天的壁纸</small>
+        <small>获取壁纸的日期，Bing 中国一般每天 16:00 更新明天的壁纸，其他地区不明</small>
     </p>
-    <strong>地区代码:</strong>
-    <input id="bingCountry-0-6" name="bingCountry" type="text" value="" disabled style="width:3em;text-align:center;border:0;background:none;font-size:1em;">
+    <p>
+        <strong>API链接</strong><br><a id="api"></a>
+    </p>
+    <p>
+        <strong>图片直链</strong><br><a id="src"></a>
+    </p>
     <div id="bing">
         <a class="country blur" data-mkt="zh-cn">中国</a>
         <a class="country blur" data-mkt="en-us">美国</a>
@@ -210,16 +242,17 @@ h1 {
         <!-- <a class="country blur" data-mkt="en-ww">全球</a> 全球和新西兰一致 -->
     </div>
     <div id="image"><img id="img"/></div>
+    <small id="copyright"></small>
 </div>
 <body>
 <script type="text/JavaScript">
 (function(){
-
     document.addEventListener('click', function(e){
         if (e.target.classList.contains('country')) thisOn(e.target);
         if (e.target.getAttribute('name') === 'idx') flush(e.target);
     });
 
+    var all = 1;
     var images = {};
     if (localStorage.getItem('bingImages')) {
         data = localStorage.getItem('bingImages').split('#');
@@ -235,11 +268,12 @@ h1 {
     //console.log(images);
 
     var init = 0;
-    var bingCountry = document.getElementById('bingCountry-0-6');
+    var api = document.getElementById('api');
+    var src = document.getElementById('src');
     if (document.getElementById('on') === null) {
         document.getElementsByClassName('country')[0].setAttribute('id', 'on');
     }
-    getBingImage(1);
+    getBingImage(all);
 
     function getValue(name){
         var radio = document.getElementsByName(name);
@@ -251,7 +285,7 @@ h1 {
     }
 
     function flush(elem){
-        if (init) getBingImage(1);
+        if (init) getBingImage(all);
     }
 
     function thisOn(elem){
@@ -263,14 +297,17 @@ h1 {
     }
 
     function getBingImage(all){
-        mkt = document.getElementById('on').getAttribute('data-mkt');
-        bingCountry.value = mkt;
-        imgUrl = '';
         idx = getValue('idx');
+        mkt = document.getElementById('on').getAttribute('data-mkt');
+        imgUrl = '';
+        url = window.location.href + '?idx=' + idx + '&mkt=' + mkt;
+        api.innerHTML = url;
+        api.href = url;
+        src.innerHTML = url + '&img';
+        src.href = url + '&img';
         if (init) toggleClass();
         if (images[mkt] && images['idx'] === idx){
-            imgUrl = images[mkt];
-            setBingImage(imgUrl);
+            updateImage(images[mkt].url, images[mkt].copyright);
         } else {
             formData = new FormData();
             formData.append('idx', idx);
@@ -285,21 +322,26 @@ h1 {
                         time = new Date().getTime();
                         result = xhr.responseText;
                         result = result.indexOf('!DOCTYPE') < 0 ? JSON.parse(result) : '';
-                        if (result.code){
-                            imgUrl = result[mkt] ? 'http://www.bing.com' + result[mkt].images['0'].url : '';
-                            setBingImage(imgUrl);
+                        if (result.all){
+                            imgUrl = result[mkt] ? 'http://www.bing.com' + result[mkt].images[0].url : '';
+                            copyright = result[mkt] ? result[mkt].images[0].copyright : '';
+                            updateImage(imgUrl, copyright);
                             for (var key in result){
                                 if (result[key] && result[key].images) {
-                                    images[key] = 'http://www.bing.com' + result[key].images['0'].url;
+                                    images[key] = {};
+                                    images[key].url = 'http://www.bing.com' + result[key].images[0].url;
+                                    images[key].copyright = result[key].images[0].copyright;
                                     images['idx'] = idx;
                                     localStorage.setItem('bingImages', time + '#' + idx + '#' + JSON.stringify(images));
                                 }
                             }
                         } else if (result) {
-                            imgUrl = result.images ? 'http://www.bing.com' + result.images['0'].url : '';
-                            setBingImage(imgUrl);
+                            imgUrl = result.images ? 'http://www.bing.com' + result.images[0].url : '';
+                            copyright = result.images ? result.images[0].copyright : '';
+                            updateImage(imgUrl, copyright);
                             if (imgUrl){
-                                images[mkt] = imgUrl;
+                                images[mkt].url = imgUrl;
+                                images[mkt].copyright = copyright;
                                 images['idx'] = idx;
                                 localStorage.setItem('bingImages', time + '#' + idx + '#' + JSON.stringify(images));
                             };
@@ -318,7 +360,7 @@ h1 {
         }, 3000);
     }
 
-    function setBingImage(imgUrl){
+    function updateImage(imgUrl, copyright){
         if (!imgUrl) return;
         div = document.getElementById('image');
         if (!init) {
@@ -330,8 +372,10 @@ h1 {
         } else {
             div.innerHTML = "<img src=\"" + imgUrl + "\"/>";
         }
+        if (copyright) {
+            document.getElementById('copyright').innerHTML = copyright;
+        }
         toggleClass(1);
-        //console.log(init);
     }
 
     function toggleClass(force){
