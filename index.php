@@ -30,7 +30,7 @@ function bing($url, $redirect = null) {
         $data = json_decode($cexecute, true);
         $url = @$data['images'][0]['url'];
         if ($url) {
-            header('Location: https://www.bing.com'.$url, true, 200);
+            header('Location: https://www.bing.com'.$url, true, 302);
             exit;
         }
     }
