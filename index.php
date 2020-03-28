@@ -89,7 +89,7 @@ if ($_GET || $_POST) {
     if ($all) {
         $urls = [];
         $callback = array('all' => 1);
-        $mkts = array('zh-cn', 'en-us', 'ja-jp', 'en-gb', 'en-in', 'de-de', 'fr-fr', 'pt-br', 'en-ca', 'fr-ca', 'en-ww', 'en-au');
+        $mkts = array('zh-cn', 'en-us', 'ja-jp', 'en-gb', 'en-in', 'de-de', 'fr-fr', 'pt-br', 'en-ca', 'fr-ca', 'en-nz', 'en-au');
         foreach ($mkts as $mkt) {
             $urls[$mkt] = $url.'&mkt='.$mkt;
         }
